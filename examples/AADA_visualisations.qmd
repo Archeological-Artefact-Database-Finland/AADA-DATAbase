@@ -1,0 +1,877 @@
+# 1 Introduction
+
+## Purpose of the project
+
+This document presents the code used to replicate the archaeological data queries and map visualisations published in Pesonen et al. (2024). It is intended as a reproducible companion to the article and as a starting point for users wishing to query and visualise AADA data in R. This .qmd-file is adapted from Meeli Roose's "AADA Archaeological Data Query and Map Visualisations in R" from 2024-05-17.
+
+The code loads data from the AADA CSV files available in the `data-raw/` directory of this repository. Reference datasets for map backgrounds (coastlines, lakes, marine areas, and populated places) are retrieved from the `rnaturalearth` package.
+
+::: callout-note
+This script currently loads data directly from the CSV files in `data-raw/`. Once the AADA R package is released, the data loading section (2.2) will be replaceable with a single `library(AADA)` call, after which all period datasets will be available directly as named R objects.
+:::
+
+## Frequently used terms
+
+-   **AADA**: a database containing information on archaeological artefacts from the Stone Age, Bronze Age, and Iron Age in Finland. It consists of three sets of tables, organised by period, and is intended to be used as an umbrella term when referring to all three datasets collectively.
+-   **package**: a collection of functions, datasets, and documentation that can be loaded into R to perform specific tasks.
+-   **library**: a location where packages are stored. Packages are loaded into an R session using the `library()` function.
+-   **sf package**: used for processing vector spatial data. Provides functions for reading, writing, manipulating, and visualising spatial data using a simple feature data model.
+-   **function**: a block of code in R that performs a specific task, accepts arguments as input, and returns an output.
+-   **subset**: the process of selecting a portion of data from a larger dataset.
+-   **data frame**: a tabular data structure in R where each column may have a different data type and each row represents a single observation.
+-   **coordinate reference system (CRS)**: a standardised way of defining the location and orientation of spatial data. Transforming datasets to a common CRS is essential for accurate overlay and spatial analysis.
+-   **reference datasets**: geographic data used as a background for map visualisations, including coastlines, water bodies, and place names.
+
+## Data formats used in this project
+
+Data in this project is handled in two formats: standard R `data.frame` and `sf` (simple features). A data frame organises data in rows and columns, analogous to a spreadsheet. The `sf` format is used for spatial data and conforms to the Open Geospatial Consortium standard: each row represents a spatial feature, each column an attribute, and a dedicated `geometry` column stores the shape and location of each feature. Both formats are used here to represent the spatial and non-spatial aspects of the data respectively.
+
+------------------------------------------------------------------------
+
+# 2 Preparation
+
+This section prepares the data for visualisation across the following steps:
+
+-   **2.1** Installing and loading R packages
+-   **2.2** Loading CSV files and organising data by period and artefact category
+-   **2.3** Converting data frames to spatial format (`sf`)
+-   **2.4** Loading reference datasets (coastlines, lakes, marine areas, cities)
+-   **2.5** Creating a merged AADA master table and defining the spatial extent
+
+## 2.1 Installing and loading R packages
+
+```{r}
+#| label: install-packages
+
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
+packages <- c(
+  "rlang", "readr", "sf", "sp", "ggplot2", "dplyr",
+  "rnaturalearth", "rnaturalearthdata", "stringr",
+  "tidyverse", "ggspatial", "RColorBrewer", "ggpubr",
+  "mapview", "tidyr"
+)
+
+installed <- packages %in% rownames(installed.packages())
+if (any(!installed)) install.packages(packages[!installed])
+
+library(readr)
+library(sf)
+library(sp)
+library(ggplot2)
+library(dplyr)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(stringr)
+library(tidyverse)
+library(ggspatial)
+library(RColorBrewer)
+library(ggpubr)
+library(tidyr)
+```
+
+## 2.2 Loading CSV files
+
+Data are loaded from the `data-raw/` directory of the AADA repository. Each period contains per-category CSV files as well as a master CSV consolidating all finds for that period. Here, the per-category files are loaded individually to preserve category-level structure for subsetting and visualisation.
+
+Set `data_path` to the location of the `data-raw/` folder on your machine.
+
+```{r}
+#| label: set-path
+
+# Set this to the path of your local data-raw/ directory
+data_path <- "../../data-raw"  # relative to examples/ directory; adjust as needed
+```
+
+### 2.2.1 Bronze Age
+
+```{r}
+#| label: load-bronze-age
+
+BA_pottery  <- read_csv(file.path(data_path, "AADA_Bronze_Age", "BA_pottery.csv"),  show_col_types = FALSE)
+BA_stone    <- read_csv(file.path(data_path, "AADA_Bronze_Age", "BA_stone.csv"),    show_col_types = FALSE)
+BA_clay     <- read_csv(file.path(data_path, "AADA_Bronze_Age", "BA_clay.csv"),     show_col_types = FALSE)
+BA_bone     <- read_csv(file.path(data_path, "AADA_Bronze_Age", "BA_bone.csv"),     show_col_types = FALSE)
+BA_wooden   <- read_csv(file.path(data_path, "AADA_Bronze_Age", "BA_wooden.csv"),   show_col_types = FALSE)
+BA_bronze   <- read_csv(file.path(data_path, "AADA_Bronze_Age", "BA_bronze.csv"),   show_col_types = FALSE)
+BA_birch    <- read_csv(file.path(data_path, "AADA_Bronze_Age", "BA_birch.csv"),    show_col_types = FALSE)
+```
+
+### 2.2.2 Stone Age
+
+```{r}
+#| label: load-stone-age
+
+SA_pottery  <- read_csv(file.path(data_path, "AADA_Stone_Age", "SA_pottery.csv"),  show_col_types = FALSE)
+SA_stone    <- read_csv(file.path(data_path, "AADA_Stone_Age", "SA_stone.csv"),    show_col_types = FALSE)
+SA_clay     <- read_csv(file.path(data_path, "AADA_Stone_Age", "SA_clay.csv"),     show_col_types = FALSE)
+SA_bone     <- read_csv(file.path(data_path, "AADA_Stone_Age", "SA_bone.csv"),     show_col_types = FALSE)
+SA_wooden   <- read_csv(file.path(data_path, "AADA_Stone_Age", "SA_wooden.csv"),   show_col_types = FALSE)
+SA_amber    <- read_csv(file.path(data_path, "AADA_Stone_Age", "SA_amber.csv"),    show_col_types = FALSE)
+SA_birch    <- read_csv(file.path(data_path, "AADA_Stone_Age", "SA_birch.csv"),    show_col_types = FALSE)
+```
+
+### 2.2.3 Iron Age
+
+```{r}
+#| label: load-iron-age
+
+IA_pottery          <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_pottery.csv"),          show_col_types = FALSE)
+IA_pottery_detailed <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_pottery_detailed.csv"), show_col_types = FALSE)
+IA_stone            <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_stone.csv"),            show_col_types = FALSE)
+IA_clay             <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_clay.csv"),             show_col_types = FALSE)
+IA_bone             <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_bone.csv"),             show_col_types = FALSE)
+IA_wooden           <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_wooden.csv"),           show_col_types = FALSE)
+IA_bronze           <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_bronze.csv"),           show_col_types = FALSE)
+IA_iron             <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_iron.csv"),             show_col_types = FALSE)
+IA_silver           <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_silver.csv"),           show_col_types = FALSE)
+IA_beads            <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_beads.csv"),            show_col_types = FALSE)
+IA_amber            <- read_csv(file.path(data_path, "AADA_Iron_Age", "IA_amber.csv"),            show_col_types = FALSE)
+```
+
+## 2.3 Converting data frames to spatial format
+
+The `st_as_sf()` function assigns a geometry component to each data frame using the WGS84 coordinate columns (`X` = latitude, `Y` = longitude), producing `sf` objects suitable for spatial analysis and mapping. The coordinate reference system used is WGS84 (EPSG:4326).
+
+```{r}
+#| label: to-sf-bronze-age
+
+BA_pottery  <- st_as_sf(BA_pottery,  coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+BA_stone    <- st_as_sf(BA_stone,    coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+BA_clay     <- st_as_sf(BA_clay,     coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+BA_bone     <- st_as_sf(BA_bone,     coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+BA_wooden   <- st_as_sf(BA_wooden,   coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+BA_bronze   <- st_as_sf(BA_bronze,   coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+BA_birch    <- st_as_sf(BA_birch,    coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+```
+
+```{r}
+#| label: to-sf-stone-age
+
+SA_pottery  <- st_as_sf(SA_pottery,  coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+SA_stone    <- st_as_sf(SA_stone,    coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+SA_clay     <- st_as_sf(SA_clay,     coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+SA_bone     <- st_as_sf(SA_bone,     coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+SA_wooden   <- st_as_sf(SA_wooden,   coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+SA_amber    <- st_as_sf(SA_amber,    coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+SA_birch    <- st_as_sf(SA_birch,    coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+```
+
+```{r}
+#| label: to-sf-iron-age
+
+IA_pottery          <- st_as_sf(IA_pottery,          coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_pottery_detailed <- st_as_sf(IA_pottery_detailed, coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_stone            <- st_as_sf(IA_stone,            coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_clay             <- st_as_sf(IA_clay,             coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_bone             <- st_as_sf(IA_bone,             coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_wooden           <- st_as_sf(IA_wooden,           coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_bronze           <- st_as_sf(IA_bronze,           coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_iron             <- st_as_sf(IA_iron,             coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_silver           <- st_as_sf(IA_silver,           coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_beads            <- st_as_sf(IA_beads,            coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+IA_amber            <- st_as_sf(IA_amber,            coords = c("X", "Y"), crs = 4326, na.fail = FALSE)
+```
+
+## 2.4 Loading reference datasets
+
+Reference datasets are used as the cartographic background for all map visualisations. Four layers are loaded: country polygons (*region*), lakes, marine area polygons (*ocean*), and populated places (*cities*).
+
+```{r}
+#| label: load-reference-data
+
+# Country polygons: Finland and neighbouring countries
+world    <- ne_countries(scale = "medium", returnclass = "sf")
+countries <- c("Finland", "Sweden", "Norway", "Denmark", "Russia", "Estonia", "Aland")
+region   <- world[world$admin %in% countries, ]
+region$admin[region$admin == "Aland"] <- "Åland"
+
+# Lakes at 10m resolution
+lakes <- ne_download(scale = 10, category = "physical", type = "lakes", returnclass = "sf")
+
+# Marine area polygons, subsetted to the Baltic region
+ocean <- ne_download(scale = "medium", category = "physical",
+                     type = "geography_marine_polys", returnclass = "sf")
+seas  <- c("Gulf of Bothnia", "Baltic Sea", "Gulf of Finland", "Barents Sea")
+ocean <- ocean[ocean$name %in% seas, ]
+
+# Populated places at large scale (used in zoomed Iron Age maps)
+cities <- ne_download(scale = "large", category = "cultural",
+                      type = "populated_places", returnclass = "sf")
+```
+
+## 2.5 Creating the AADA master table
+
+Mixed-type columns (`Subnumber`, `z`) are harmonised to integer before binding, as inconsistent typing across files prevents row binding. All three period tables are then merged into a single master `AADA` table, and the spatial bounding box (`limits_aada`) is calculated for use in map coordinate limits.
+
+```{r}
+#| label: data-management
+
+# Harmonise column types
+BA_pottery <- mutate(BA_pottery, Subnumber = as.integer(Subnumber), z = as.integer(z))
+BA_birch   <- mutate(BA_birch,   z = as.integer(z))
+BA_bronze  <- mutate(BA_bronze,  z = as.integer(z))
+BA_stone   <- mutate(BA_stone,   z = as.integer(z))
+BA_wooden  <- mutate(BA_wooden,  z = as.integer(z))
+BA_clay    <- mutate(BA_clay,    z = as.integer(z))
+
+SA_amber   <- mutate(SA_amber,   z = as.integer(z))
+SA_birch   <- mutate(SA_birch,   z = as.integer(z))
+SA_bone    <- mutate(SA_bone,    z = as.integer(z))
+SA_clay    <- mutate(SA_clay,    z = as.integer(z))
+SA_pottery <- mutate(SA_pottery, Subnumber = as.integer(Subnumber), z = as.integer(z))
+SA_stone   <- mutate(SA_stone,   z = as.integer(z))
+SA_wooden  <- mutate(SA_wooden,  z = as.integer(z))
+
+IA_beads            <- mutate(IA_beads,            z = as.integer(z))
+IA_pottery          <- mutate(IA_pottery,          Subnumber = as.integer(Subnumber), z = as.integer(z))
+IA_pottery_detailed <- mutate(IA_pottery_detailed, Subnumber = as.integer(Subnumber), z = as.integer(z))
+IA_silver           <- mutate(IA_silver,           z = as.integer(z))
+IA_stone            <- mutate(IA_stone,            z = as.integer(z))
+IA_iron             <- mutate(IA_iron,             z = as.integer(z))
+IA_clay             <- mutate(IA_clay,             z = as.integer(z))
+IA_bronze           <- mutate(IA_bronze,           z = as.integer(z))
+IA_amber            <- mutate(IA_amber,            z = as.integer(z))
+IA_wooden           <- mutate(IA_wooden,           z = as.integer(z))
+IA_bone             <- mutate(IA_bone,             z = as.integer(z))
+
+# Bind rows by period
+BA_all <- bind_rows(BA_pottery, BA_stone, BA_clay, BA_bronze, BA_bone, BA_wooden, BA_birch)
+SA_all <- bind_rows(SA_pottery, SA_stone, SA_clay, SA_bone,   SA_wooden, SA_amber, SA_birch)
+IA_all <- bind_rows(IA_pottery, IA_pottery_detailed, IA_stone, IA_clay,
+                    IA_bronze,  IA_bone, IA_wooden, IA_beads, IA_silver, IA_iron, IA_amber)
+
+# Merge into master table
+AADA <- bind_rows(SA_all, BA_all, IA_all)
+
+# Spatial bounding box for use in coord_sf() throughout
+limits_aada <- st_bbox(AADA)
+limits_aada
+```
+
+------------------------------------------------------------------------
+
+# 3 Visualisations
+
+This section documents the code used to generate the map visualisations presented in Pesonen et al. (2024), organised as follows:
+
+-   **3.1** Building the core map background
+-   **3.2** Data exploration
+-   **3.3** Stone Age examples (Figures 4a–4c)
+-   **3.4** Bronze Age examples (Figures 5a–5c)
+-   **3.5** Iron Age examples (Figures 6a–6c)
+-   **3.6** Archaeological periods (Figures 7a–7c)
+-   **3.7** Interactive maps
+-   **3.8** Exporting visualisations
+
+## 3.1 Building the core map
+
+The core map serves as the shared cartographic background for all subsequent visualisations. It consists of country polygons, lake polygons, marine area polygons, and text annotations for sea names and country names. A scale bar and north arrow are added via `ggspatial`.
+
+```{r}
+#| label: core-map
+
+core_map <- ggplot() +
+  geom_sf(data = region, fill = "#E9E8E7", color = "grey30") +
+  geom_sf(data = lakes,  fill = "#eaf2f6", color = "grey80") +
+  geom_sf(data = ocean,  fill = "#F0F8FF") +
+  geom_sf_text(
+    data    = st_crop(ocean, st_as_sfc(st_bbox(limits_aada))),
+    aes(label = name), color = "black", size = 2.5,
+    nudge_y = ifelse(ocean$name %in% c("Barents Sea", "Gulf of Bothnia"), 40000, 0)
+  ) +
+  geom_sf_text(
+    data    = st_crop(region, st_as_sfc(st_bbox(limits_aada))),
+    aes(label = admin), size = 4, color = "black",
+    nudge_y = ifelse(region$admin == "Åland", 0.3, 0)
+  ) +
+  geom_sf_text(
+    data = lakes,
+    aes(label = ifelse(name == "Lake Ladoga", "Lake Ladoga", "")),
+    color = "black", size = 2.5
+  ) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  ) +
+  guides(fill = "none") +
+  theme_void() +
+  theme(
+    panel.background = element_rect(fill = "#F0F8FF"),
+    panel.border     = element_rect(color = "grey30", fill = NA, linewidth = 0.25),
+    panel.grid.major = element_blank(),
+    legend.background = element_blank(),
+    legend.key        = element_blank(),
+    legend.title      = element_text(color = "black"),
+    legend.text       = element_text(color = "black")
+  ) +
+  annotation_scale(
+    location   = "br", width_hint = 0.4,
+    text_cex   = 0.6,  style = "ticks"
+  ) +
+  annotation_north_arrow(
+    location    = "br", which_north = "grid",
+    pad_x = unit(0.4, "cm"), pad_y = unit(0.6, "cm"),
+    height = unit(0.8, "cm"), width  = unit(0.8, "cm"),
+    style = north_arrow_fancy_orienteering(
+      line_width = 1, line_col = "black",
+      fill = c("white", "black"),
+      text_col = "black", text_size = 5, text_angle = 0
+    )
+  )
+
+core_map
+```
+
+## 3.2 Data exploration
+
+Basic functions for inspecting the structure and contents of the AADA datasets.
+
+```{r}
+#| label: data-exploration
+
+str(AADA)
+class(AADA)
+colnames(AADA)
+
+unique(AADA$Category)
+unique(AADA$Phase)
+table(AADA$Phase)
+table(AADA$Collection)
+```
+
+Point shape reference chart (useful when customising map symbols in subsequent sections):
+
+```{r}
+#| label: point-shapes
+
+ggpubr::show_point_shapes()
+```
+
+------------------------------------------------------------------------
+
+# 3.3 Stone Age
+
+## 3.3.1 Mesolithic leaf-shaped slate spearheads — Figure 4a
+
+```{r}
+#| label: fig-4a
+
+spearhead_subtypes <- SA_stone$Subtype[grep("spearhead", SA_stone$Subtype)]
+unique(spearhead_subtypes)
+
+SA_spearhead <- SA_stone %>%
+  filter(Subtype == "Leaf-shaped slate spearhead")
+
+SA_spearheads_fig4a <- core_map +
+  geom_sf(data = SA_spearhead, color = "grey10", size = 1.5, shape = 20) +
+  ggtitle(str_wrap("Mesolithic (8900–5100 calBC) leaf-shaped slate spearheads", width = 81)) +
+  theme(plot.title = element_text(margin = margin(b = 1, unit = "mm"), size = 12)) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+SA_spearheads_fig4a
+```
+
+## 3.3.2 Neolithic East Carelian adzes and chisels — Figure 4b
+
+```{r}
+#| label: fig-4b
+
+adze_subtypes   <- SA_stone$Subtype[grep("adze",   SA_stone$Subtype)]
+chisel_subtypes <- SA_stone$Subtype[grep("chisel", SA_stone$Subtype)]
+unique(adze_subtypes)
+unique(chisel_subtypes)
+
+SA_adze   <- SA_stone %>% filter(Subtype == "East Carelian adze")
+SA_chisel <- SA_stone %>% filter(Subtype == "East Carelian chisel")
+
+SA_adze_chisel_fig4b <- core_map +
+  geom_sf(data = SA_chisel, aes(color = Subtype), size = 2, shape = 20) +
+  geom_sf(data = SA_adze,   aes(color = Subtype), size = 2, shape = 20) +
+  scale_color_manual(values = c(
+    "East Carelian adze"   = "#ff7f0e",
+    "East Carelian chisel" = "#1f77b4"
+  )) +
+  theme(
+    panel.background  = element_rect(fill = "#F0F8FF"),
+    panel.border      = element_rect(color = "grey30", fill = NA, linewidth = 0.25),
+    panel.grid.major  = element_blank(),
+    legend.background = element_blank(),
+    legend.key        = element_blank(),
+    legend.title      = element_text(color = "black"),
+    legend.text       = element_text(color = "black")
+  ) +
+  ggtitle(str_wrap("Neolithic (5100–1900 calBC)", width = 48)) +
+  theme(plot.title = element_text(margin = margin(b = 1, unit = "mm"), size = 12)) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+SA_adze_chisel_fig4b
+```
+
+## 3.3.3 Battle axes of the Corded Ware culture — Figure 4c
+
+```{r}
+#| label: fig-4c
+
+SA_battle_axe <- SA_stone %>%
+  filter(Subtype == "Battle axe")
+
+SA_battle_axe_fig4c <- core_map +
+  geom_sf(data = SA_battle_axe, color = "grey10", size = 1.5, shape = 3) +
+  ggtitle("Late Neolithic (2900–2400 calBC) battle axes") +
+  theme(plot.title = element_text(margin = margin(b = 1, unit = "mm"), size = 12)) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+SA_battle_axe_fig4c
+```
+
+------------------------------------------------------------------------
+
+# 3.4 Bronze Age
+
+## 3.4.1 Asbestos-tempered ceramics — Figure 5a
+
+```{r}
+#| label: fig-5a
+
+BA_lovozero_vardoy <- BA_pottery %>%
+  filter(Type == "Lovozero Ware" | Type == "Vardöy (IT) Ware")
+
+BA_lovozero_vardoy_fig5a <- core_map +
+  geom_sf(data = BA_lovozero_vardoy, aes(fill = Type, color = Type), size = 1.5, shape = 19) +
+  scale_fill_manual(values  = c("Lovozero Ware" = "#009966", "Vardöy (IT) Ware" = "#ff355e")) +
+  scale_color_manual(values = c("Lovozero Ware" = "#009966", "Vardöy (IT) Ware" = "#ff355e")) +
+  geom_sf_text(
+    data = BA_lovozero_vardoy %>%
+      filter(`Main number` %in% c(16145, 26240)),
+    aes(label = ifelse(`Main number` == 16145, "Neitilä",
+                       ifelse(`Main number` == 26240, "Niittyjänkkä", ""))),
+    size = 3, color = "black", nudge_x = 1
+  ) +
+  ggtitle(str_wrap("Early Bronze Age (1900–1000 calBC) asbestos-tempered ceramics", width = 48)) +
+  theme(plot.title = element_text(margin = margin(b = 1, unit = "mm"), size = 10)) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+BA_lovozero_vardoy_fig5a
+```
+
+## 3.4.2 Bronze artefacts — Figure 5b
+
+```{r}
+#| label: fig-5b
+
+BA_bronze_fig5b <- core_map +
+  geom_sf(data = BA_bronze, color = "grey20", fill = "#fe7489", size = 1.5, shape = 21) +
+  ggtitle(str_wrap("Bronze Age (1900–400 calBC) bronze artefacts", width = 48)) +
+  theme(plot.title = element_text(margin = margin(b = 1, unit = "mm"), size = 10)) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+BA_bronze_fig5b
+```
+
+## 3.4.3 Sarsa-Tomitsa textile pottery — Figure 5c
+
+```{r}
+#| label: fig-5c
+
+BA_sarsa_tomitsa <- BA_pottery %>%
+  filter(Type == "Sarsa-Tomitsa Ware")
+
+BA_sarsa_tomitsa_fig5c <- core_map +
+  geom_sf(data = BA_sarsa_tomitsa, color = "grey20", fill = "#ff1199", size = 1.5, shape = 21) +
+  ggtitle(str_wrap("Bronze Age (1900–400 calBC) pottery, Sarsa-Tomitsa Ware", width = 48)) +
+  theme(plot.title = element_text(margin = margin(b = 1, unit = "mm"), size = 10)) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+BA_sarsa_tomitsa_fig5c
+```
+
+------------------------------------------------------------------------
+
+# 3.5 Iron Age
+
+## 3.5.1 Pottery decoration types — Figure 6a
+
+A new column `Motifs` is derived from the three binary decoration columns (`Wave motif`, `Grid motif`, `Cord impression`) using `case_when()`. Cases where more than one motif is present are classified as "Multiple".
+
+```{r}
+#| label: fig-6a
+
+IA_decorations <- IA_pottery_detailed %>%
+  mutate(Motifs = case_when(
+    (`Wave motif` & `Grid motif`) | (`Wave motif` & `Cord impression`) |
+      (`Grid motif` & `Cord impression`) ~ "Multiple",
+    `Wave motif`      ~ "Wave",
+    `Grid motif`      ~ "Grid",
+    `Cord impression` ~ "Cord",
+    TRUE              ~ "NA/None"
+  ))
+
+motifs_desired_order <- c("Grid", "Wave", "Cord", "Multiple", "NA/None")
+motifs_point_shapes  <- c(16, 17, 18, 15, 4)
+motifs_colors        <- c(
+  "Grid"     = "#4DAF4A80", "Wave" = "#377EB880",
+  "Cord"     = "#E41A1C80", "Multiple" = "#984EA380",
+  "NA/None"  = "#5a5a5a"
+)
+
+IA_deco_class_counts <- table(IA_decorations$Motifs)
+motifs_legend_labels <- paste0(
+  motifs_desired_order, " (n=",
+  as.character(IA_deco_class_counts[motifs_desired_order]), ")"
+)
+
+IA_decorations$Motifs <- factor(IA_decorations$Motifs, levels = motifs_desired_order)
+
+IA_detailed_fig6a <- core_map +
+  geom_sf(data = IA_decorations, aes(shape = Motifs, color = Motifs), size = 2) +
+  scale_shape_manual(motifs_desired_order, values = motifs_point_shapes,
+                     labels = motifs_legend_labels) +
+  scale_color_manual(values = motifs_colors) +
+  guides(
+    shape = guide_legend(title = "Motifs", override.aes = list(color = motifs_colors)),
+    color = "none"
+  ) +
+  ggtitle(str_wrap(
+    "Iron Age (500 calBC – 1250 AD) pottery decoration types (separate sites)", width = 48
+  )) +
+  theme(
+    plot.title    = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title  = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+IA_detailed_fig6a
+```
+
+Zoomed view with city reference points:
+
+```{r}
+#| label: fig-6a-zoomed
+
+limits_IA_pottery_detailed <- st_bbox(IA_pottery_detailed)
+
+IA_detailed_fig6a_zoomed <- core_map +
+  geom_sf(data = IA_decorations, aes(shape = Motifs, color = Motifs), size = 4) +
+  geom_sf(data = cities, size = 1) +
+  geom_sf_text(data = cities, aes(label = NAME), color = "black", size = 2,
+               nudge_x = -0.05, nudge_y = -0.05) +
+  scale_shape_manual(motifs_desired_order, values = motifs_point_shapes,
+                     labels = motifs_legend_labels) +
+  scale_color_manual(values = motifs_colors) +
+  guides(
+    shape = guide_legend(title = "Motifs", override.aes = list(color = motifs_colors)),
+    color = "none"
+  ) +
+  ggtitle(str_wrap(
+    "Iron Age (500 calBC – 1250 AD) pottery decoration types (separate sites)", width = 81
+  )) +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_IA_pottery_detailed[1], limits_IA_pottery_detailed[3]),
+    ylim = c(limits_IA_pottery_detailed[2], limits_IA_pottery_detailed[4])
+  )
+
+IA_detailed_fig6a_zoomed
+```
+
+## 3.5.2 Iron Age swords — Figure 6b
+
+```{r}
+#| label: fig-6b
+
+IA_swords <- IA_all %>%
+  filter(grepl("sword", Subtype, ignore.case = TRUE)) %>%
+  mutate(Subtype = ifelse(Subtype == "Iron sword", "Iron sword (unspecified)", Subtype))
+
+swords_point_shapes  <- c(3, 4, 5, 6, 7, 8, 9, 10, 1)
+swords_default_colors <- scales::hue_pal()(length(unique(IA_swords$Subtype)))
+
+IA_swords_fig6b <- core_map +
+  geom_sf(data = IA_swords, aes(shape = Subtype, color = Subtype), size = 2) +
+  scale_shape_manual(values = swords_point_shapes) +
+  scale_color_manual(values = swords_default_colors) +
+  guides(
+    shape = guide_legend(
+      title = paste0("Sword Types (n=", nrow(IA_swords), ")"),
+      override.aes = list(color = swords_default_colors)
+    ),
+    color = "none"
+  ) +
+  ggtitle(str_wrap("Iron Age (500–1250 AD) swords", width = 51)) +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+IA_swords_fig6b
+```
+
+Zoomed view:
+
+```{r}
+#| label: fig-6b-zoomed
+
+limits_IA_swords <- st_bbox(IA_swords)
+
+IA_swords_fig6b_zoomed <- core_map +
+  geom_sf(data = IA_swords, aes(shape = Subtype, color = Subtype), size = 3) +
+  geom_sf(data = cities, size = 1) +
+  geom_sf_text(data = cities, aes(label = NAME), color = "black", size = 2,
+               nudge_x = -0.01, nudge_y = -0.1) +
+  scale_shape_manual(values = swords_point_shapes) +
+  scale_color_manual(values = swords_default_colors) +
+  guides(
+    shape = guide_legend(
+      title = paste0("Sword Types (n=", nrow(IA_swords), ")"),
+      override.aes = list(color = swords_default_colors)
+    ),
+    color = "none"
+  ) +
+  ggtitle(str_wrap("Iron Age (500–1250 AD) swords", width = 51)) +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_IA_swords[1], limits_IA_swords[3]),
+    ylim = c(limits_IA_swords[2], limits_IA_swords[4])
+  )
+
+IA_swords_fig6b_zoomed
+```
+
+## 3.5.3 Iron Age beads — Figure 6c
+
+Only bead types with more than two recorded instances are included in this visualisation.
+
+```{r}
+#| label: fig-6c
+
+IA_beads_subset <- IA_beads %>%
+  group_by(Type) %>%
+  filter(n() > 2) %>%
+  ungroup()
+
+beads_desired_order  <- c("Bone bead", "Bronze bead", "Clay bead", "Glass bead", "Stone bead")
+beads_point_shapes   <- c(1, 2, 3, 4, 0)
+beads_class_counts   <- table(IA_beads_subset$Type)
+beads_legend_labels  <- paste0(beads_desired_order, " (n=", beads_class_counts, ")")
+beads_default_colors <- brewer.pal(5, "Set1")
+
+IA_beads_fig6c <- core_map +
+  geom_sf(data = IA_beads_subset, aes(shape = Type, color = Type), size = 2) +
+  scale_shape_manual(beads_desired_order, values = beads_point_shapes,
+                     labels = beads_legend_labels) +
+  scale_color_manual(values = beads_default_colors) +
+  guides(
+    shape = guide_legend(
+      title = "Bead Types", override.aes = list(color = beads_default_colors)
+    ),
+    color = "none"
+  ) +
+  ggtitle(str_wrap("Iron Age (500–1250 AD) beads", width = 51)) +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+IA_beads_fig6c
+```
+
+Zoomed view:
+
+```{r}
+#| label: fig-6c-zoomed
+
+limits_IA_beads_subset <- st_bbox(IA_beads_subset)
+
+IA_beads_fig6c_zoomed <- core_map +
+  geom_sf(data = IA_beads_subset, aes(shape = Type, color = Type), size = 2) +
+  geom_sf(data = cities, size = 1) +
+  geom_sf_text(data = cities, aes(label = NAME), color = "black", size = 2.5,
+               nudge_x = -0.01, nudge_y = -0.08) +
+  scale_shape_manual(beads_desired_order, values = beads_point_shapes,
+                     labels = beads_legend_labels) +
+  scale_color_manual(values = beads_default_colors) +
+  guides(
+    shape = guide_legend(
+      title = "Bead Types", override.aes = list(color = beads_default_colors)
+    ),
+    color = "none"
+  ) +
+  ggtitle(str_wrap("Iron Age (500–1250 AD) beads", width = 51)) +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_IA_beads_subset[1], limits_IA_beads_subset[3]),
+    ylim = c(limits_IA_beads_subset[2], limits_IA_beads_subset[4])
+  )
+
+IA_beads_fig6c_zoomed
+```
+
+------------------------------------------------------------------------
+
+# 3.6 Archaeological periods
+
+## 3.6.1 Late Mesolithic — Figure 7a
+
+```{r}
+#| label: fig-7a
+
+m3 <- AADA %>% filter(m3)
+
+latemesolithic_fig7a <- core_map +
+  geom_sf(data = m3, color = "grey20", size = 1.4, shape = 1) +
+  ggtitle("Late Mesolithic (6200–5100 calBC) artefacts") +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+latemesolithic_fig7a
+```
+
+## 3.6.2 Early Neolithic — Figure 7b
+
+```{r}
+#| label: fig-7b
+
+n1 <- AADA %>% filter(n1)
+n1_subset <- n1 %>%
+  filter(Category %in% c("Pottery", "Clay artefacts", "Amber artefacts"))
+
+earlyneolithic_fig7b <- core_map +
+  geom_sf(data = n1,       color = "grey20",  size = 1.4, shape = 1) +
+  geom_sf(data = n1_subset, color = "#FE8000", size = 1.5, shape = 20) +
+  ggtitle("Early Neolithic (5100–3900 calBC) artefacts") +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+earlyneolithic_fig7b
+```
+
+## 3.6.3 Middle Neolithic — Figure 7c
+
+```{r}
+#| label: fig-7c
+
+n2 <- AADA %>% filter(n2)
+n2_subset <- n2 %>%
+  filter(Category %in% c("Pottery", "Clay artefacts", "Amber artefacts"))
+
+middleneolithic_fig7c <- core_map +
+  geom_sf(data = n2,        color = "grey10",  size = 1.4, shape = 1) +
+  geom_sf(data = n2_subset, color = "#FE8000", size = 1) +
+  ggtitle("Middle Neolithic (3900–3400 calBC) artefacts") +
+  theme(
+    plot.title   = element_text(margin = margin(b = 1, unit = "mm"), size = 10),
+    legend.title = element_text(size = 10)
+  ) +
+  coord_sf(
+    xlim = c(limits_aada[1], limits_aada[3]),
+    ylim = c(limits_aada[2], limits_aada[4])
+  )
+
+middleneolithic_fig7c
+```
+
+------------------------------------------------------------------------
+
+# 3.7 Interactive maps
+
+The `mapview` package allows rapid interactive exploration of `sf` datasets directly in the RStudio viewer. The code below is illustrative and is not executed during rendering.
+
+```{r}
+#| label: interactive-maps
+#| eval: false
+
+library(mapview)
+
+mapview(SA_spearhead)
+mapview(SA_spearhead, color = "red") + SA_battle_axe
+SA_battle_axe %>% mapview()
+m3 %>% mapview()
+```
+
+------------------------------------------------------------------------
+
+# 3.8 Exporting visualisations
+
+All figures are exported as JPEG files at 600 dpi using `ggsave()`. Adjust the output path as needed.
+
+```{r}
+#| label: export
+#| eval: false
+
+ggsave("SA_spearheads_fig4a.jpg",       plot = SA_spearheads_fig4a,       dpi = 600)
+ggsave("SA_adze_chisel_fig4b.jpg",      plot = SA_adze_chisel_fig4b,      dpi = 600)
+ggsave("SA_battle_axe_fig4c.jpg",       plot = SA_battle_axe_fig4c,       dpi = 600)
+ggsave("BA_lovozero_vardoy_fig5a.jpg",  plot = BA_lovozero_vardoy_fig5a,  dpi = 600)
+ggsave("BA_bronze_fig5b.jpg",           plot = BA_bronze_fig5b,           dpi = 600)
+ggsave("BA_sarsa_tomitsa_fig5c.jpg",    plot = BA_sarsa_tomitsa_fig5c,    dpi = 600)
+ggsave("IA_detailed_fig6a.jpg",         plot = IA_detailed_fig6a,         dpi = 600)
+ggsave("IA_detailed_fig6a_zoomed.jpg",  plot = IA_detailed_fig6a_zoomed,  dpi = 600)
+ggsave("IA_swords_fig6b.jpg",           plot = IA_swords_fig6b,           dpi = 600)
+ggsave("IA_swords_fig6b_zoomed.jpg",    plot = IA_swords_fig6b_zoomed,    dpi = 600)
+ggsave("IA_beads_fig6c.jpg",            plot = IA_beads_fig6c,            dpi = 600)
+ggsave("IA_beads_fig6c_zoomed.jpg",     plot = IA_beads_fig6c_zoomed,     dpi = 600)
+ggsave("latemesolithic_fig7a.jpg",      plot = latemesolithic_fig7a,      dpi = 600)
+ggsave("earlyneolithic_fig7b.jpg",      plot = earlyneolithic_fig7b,      dpi = 600)
+ggsave("middleneolithic_fig7c.jpg",     plot = middleneolithic_fig7c,     dpi = 600)
+```
+
+------------------------------------------------------------------------
+
+# Session Information
+
+```{r}
+#| label: session-info
+
+sessionInfo()
+```

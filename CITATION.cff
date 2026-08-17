@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this dataset, please cite it as below."
+authors:
+  - family-names: Pesonen
+    given-names: P.
+  - family-names: Moilanen
+    given-names: U.
+  - family-names: Roose
+    given-names: M.
+  - family-names: Saipio
+    given-names: J.
+  - family-names: Tiilikkala
+    given-names: J.
+  - family-names: Sanwal
+    given-names: M. U.
+  - family-names: Immonen
+    given-names: V.
+  - family-names: Vesakoski
+    given-names: O.
+  - family-names: Onkamo
+    given-names: P.
+title: "Archaeological Artefact Database of Finland (AADA)"
+doi: 10.5281/zenodo.10437704
+version: "1.0.1"
+date-released: "2026-03-xx"
+url: "https://github.com/AADA-DATA/AADA-DATABase"
+license: CC-BY-NC-4.0
